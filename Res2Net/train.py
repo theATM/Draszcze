@@ -154,7 +154,7 @@ def main():
             transform=transform_train)
         train_loader = torch.utils.data.DataLoader(
             train_set,
-            batch_size=128,
+            batch_size=16,
             shuffle=True,
             num_workers=8)
 
@@ -165,7 +165,7 @@ def main():
             transform=transform_test)
         test_loader = torch.utils.data.DataLoader(
             test_set,
-            batch_size=128,
+            batch_size=16,
             shuffle=False,
             num_workers=8)
 
@@ -195,7 +195,7 @@ def main():
             transform_train)
         train_loader = torch.utils.data.DataLoader(
             train_set,
-            batch_size=256,
+            batch_size=32,
             shuffle=True,
             num_workers=8)
 
@@ -204,7 +204,7 @@ def main():
             transform_test)
         test_loader = torch.utils.data.DataLoader(
             test_set,
-            batch_size=256,
+            batch_size=32,
             shuffle=False,
             num_workers=8)
 
