@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 
 __all__ = ['ImageNetRes2Net', 'res2net50', 'res2net101',
-           'res2net152', 'res2next50_32x4d', 'se_res2net50',
+           'res2net152', 'res2next50_32x4d',
            'CifarRes2Net', 'res2next29_6cx24wx4scale',
            'res2next29_8cx25wx4scale', 'res2next29_6cx24wx6scale',
            'res2next29_6cx24wx4scale_se', 'res2next29_8cx25wx4scale_se',
@@ -128,7 +128,7 @@ class ImageNetRes2Net(nn.Module):
                 if isinstance(m, Res2NetBottleneck):
                     nn.init.constant_(m.bn3.weight, 0)
 
-    def _make_layer(self, block, planes, blocks, stride=1, scales=4, groups=1, se=False, norm_layer=None):
+    def _make_layer(self, block, planes, blocks, stride=1, groups=1, norm_layer=None):
         if norm_layer is None:
             norm_layer = nn.BatchNorm2d
         downsample = None
@@ -139,10 +139,10 @@ class ImageNetRes2Net(nn.Module):
             )
 
         layers = []
-        layers.append(block(self.inplanes, planes, downsample, stride=stride, scales=scales, groups=groups, se=se, norm_layer=norm_layer))
+        layers.append(block(self.inplanes, planes, stride, downsample, groups, norm_layer))
         self.inplanes = planes * block.expansion
         for _ in range(1, blocks):
-            layers.append(block(self.inplanes, planes, scales=scales, groups=groups, se=se, norm_layer=norm_layer))
+            layers.append(block(self.inplanes, planes, groups=groups, norm_layer=norm_layer))
 
         return nn.Sequential(*layers)
 
@@ -263,13 +263,6 @@ def res2next101_32x8d(**kwargs):
     """Constructs a Res2NeXt-101_32x8d model.
     """
     model = ImageNetRes2Net([3, 4, 23, 3], groups=32, width=8, **kwargs)
-    return model
-
-
-def se_res2net50(**kwargs):
-    """Constructs a SE-Res2Net-50 model.
-    """
-    model = ImageNetRes2Net([3, 4, 6, 3], se=True, **kwargs)
     return model
 
 
