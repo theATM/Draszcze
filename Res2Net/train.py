@@ -13,9 +13,65 @@ import torch.optim as optim
 from torch.optim import lr_scheduler
 import torchvision.transforms as transforms
 import torchvision.datasets as datasets
+from torch.utils.data import Dataset, Subset
+from pytorch_lightning import Trainer
+from pytorch_lightning import LightningModule
 
 from utils import *
 import res2net
+
+import time
+
+class LitRes2Net(LightningModule):
+    def __init__(self, model):
+        super().__init__()
+        self.model = model
+
+    def training_step(self, batch, batch_idx):
+        x, y = batch
+        output = self.model(x)
+
+        loss = nn.functional.cross_entropy(output, y)
+        self.log("Train loss", loss)
+        return loss
+
+    def configure_optimizers(self):
+        optimizer = optim.Adam(self.parameters(), lr=1e-3)
+        return optimizer
+
+
+
+def unpickle(file):
+    import pickle
+    with open(file, 'rb') as fo:
+        dict = pickle.load(fo, encoding='latin1')
+    return dict
+class CIFAR100(Dataset):
+    def __init__(self, path, train=True, transform=None):
+        ## load dataset dict
+        if train:
+            dict = unpickle(path + 'train')
+        else:
+            dict = unpickle(path + 'test')
+
+        ## load raw data
+        data = dict['data']
+        labels = dict['fine_labels']
+        ## transform data
+        self.data = data.reshape(-1, 3, 32, 32).astype('float32')
+        self.labels = labels
+
+        ## move data to GPU
+        self.data = torch.tensor(self.data)
+        self.labels = torch.tensor(self.labels)
+
+    def __len__(self):
+        return len(self.labels)
+
+    def __getitem__(self, idx):
+        return self.data[idx], self.labels[idx]
+
+
 
 
 def parse_args():
@@ -51,9 +107,8 @@ def train(args, train_loader, model, criterion, optimizer, epoch, scheduler=None
     model.train()
 
     for i, (input, target) in tqdm(enumerate(train_loader), total=len(train_loader)):
-        input = input.cuda()
-        target = target.cuda()
-
+        # input = input.cuda()
+        # target = target.cuda()
         output = model(input)
         loss = criterion(output, target)
 
@@ -62,7 +117,6 @@ def train(args, train_loader, model, criterion, optimizer, epoch, scheduler=None
         losses.update(loss.item(), input.size(0))
         acc1s.update(acc1.item(), input.size(0))
         acc5s.update(acc5.item(), input.size(0))
-
         # compute gradient and do optimizing step
         optimizer.zero_grad()
         loss.backward()
@@ -73,7 +127,6 @@ def train(args, train_loader, model, criterion, optimizer, epoch, scheduler=None
         ('acc1', acc1s.avg),
         ('acc5', acc5s.avg),
     ])
-
     return log
 
 
@@ -87,8 +140,8 @@ def validate(args, val_loader, model, criterion):
 
     with torch.no_grad():
         for i, (input, target) in tqdm(enumerate(val_loader), total=len(val_loader)):
-            input = input.cuda()
-            target = target.cuda()
+            # input = input.cuda()
+            # target = target.cuda()
 
             output = model(input)
             loss = criterion(output, target)
@@ -137,38 +190,39 @@ def main():
         transform_train = transforms.Compose([
             transforms.RandomCrop(32, padding=4),
             transforms.RandomHorizontalFlip(),
-            transforms.ToTensor(),
             transforms.Normalize((0.4914, 0.4822, 0.4465),
                                  (0.2023, 0.1994, 0.2010)),
         ])
         transform_test = transforms.Compose([
-            transforms.ToTensor(),
             transforms.Normalize((0.4914, 0.4822, 0.4465),
                                  (0.2023, 0.1994, 0.2010)),
         ])
-
-        train_set = datasets.CIFAR100(
-            root='~/data',
-            train=True,
-            download=True,
-            transform=transform_train)
+        train_set = CIFAR100("../data/cifar-100-python/", train=True, transform=transform_train)
+        # train_set = datasets.CIFAR100(
+        #     root='~/data',
+        #     train=True,
+        #     download=True,
+        #     transform=transform_train)
+        # train_set.data = train_set.data.cuda()
+        # train_set.labels = train_set.labels.cuda()
         train_loader = torch.utils.data.DataLoader(
             train_set,
-            batch_size=16,
+            batch_size=32,
             shuffle=True,
             num_workers=8)
-
-        test_set = datasets.CIFAR100(
-            root='~/data',
-            train=False,
-            download=True,
-            transform=transform_test)
+        # test_set = datasets.CIFAR100(
+        #     root='~/data',
+        #     train=False,
+        #     download=True,
+        #     transform=transform_test)
+        test_set = CIFAR100("../data/cifar-100-python/", train=False, transform=transform_test)
+        # test_set.data = train_set.data.cuda()
+        # train_set.labels = train_set.labels.cuda()
         test_loader = torch.utils.data.DataLoader(
             test_set,
             batch_size=16,
             shuffle=False,
-            num_workers=8)
-
+            num_workers=0)
         num_classes = 100
 
     elif args.dataset == 'imagenet':
@@ -195,9 +249,9 @@ def main():
             transform_train)
         train_loader = torch.utils.data.DataLoader(
             train_set,
-            batch_size=32,
+            batch_size=64,
             shuffle=True,
-            num_workers=8)
+            num_workers=0)
 
         test_set = datasets.ImageFolder(
             test_dir,
@@ -206,56 +260,59 @@ def main():
             test_set,
             batch_size=32,
             shuffle=False,
-            num_workers=8)
+            num_workers=0)
 
         num_classes = 1000
 
     # create model
     model = res2net.__dict__[args.arch]()
-    model = model.cuda()
+    model = LitRes2Net(model)
 
-    optimizer = optim.SGD(filter(lambda p: p.requires_grad, model.parameters()), lr=args.lr,
-            momentum=args.momentum, weight_decay=args.weight_decay)
-
-    scheduler = lr_scheduler.MultiStepLR(optimizer,
-            milestones=[int(e) for e in args.milestones.split(',')], gamma=args.gamma)
+    trainer = Trainer(accelerator='auto')
+    trainer.fit(model=model, train_dataloaders=train_loader)
+    # optimizer = optim.SGD(filter(lambda p: p.requires_grad, model.parameters()), lr=args.lr,
+    #         momentum=args.momentum, weight_decay=args.weight_decay)
+    #
+    # scheduler = lr_scheduler.MultiStepLR(optimizer,
+    #         milestones=[int(e) for e in args.milestones.split(',')], gamma=args.gamma)
 
     log = pd.DataFrame(index=[], columns=[
         'epoch', 'lr', 'loss', 'acc1', 'acc5', 'val_loss', 'val_acc1', 'val_acc5'
     ])
 
     best_acc = 0
-    for epoch in range(args.epochs):
-        print('Epoch [%d/%d]' %(epoch+1, args.epochs))
 
-        scheduler.step()
-
-        # train for one epoch
-        train_log = train(args, train_loader, model, criterion, optimizer, epoch)
-        # evaluate on validation set
-        val_log = validate(args, test_loader, model, criterion)
-
-        print('loss %.4f - acc1 %.4f - acc5 %.4f - val_loss %.4f - val_acc %.4f - val_acc5 %.4f'
-            %(train_log['loss'], train_log['acc1'], train_log['acc5'], val_log['loss'], val_log['acc1'], val_log['acc5']))
-
-        tmp = pd.Series([
-            epoch,
-            scheduler.get_lr()[0],
-            train_log['loss'],
-            train_log['acc1'],
-            train_log['acc5'],
-            val_log['loss'],
-            val_log['acc1'],
-            val_log['acc5'],
-        ], index=['epoch', 'lr', 'loss', 'acc1', 'acc5', 'val_loss', 'val_acc1', 'val_acc5'])
-
-        log = log.append(tmp, ignore_index=True)
-        log.to_csv('models/%s/log.csv' %args.name, index=False)
-
-        if val_log['acc1'] > best_acc:
-            torch.save(model.state_dict(), 'models/%s/model.pth' %args.name)
-            best_acc = val_log['acc1']
-            print("=> saved best model")
+    # for epoch in range(args.epochs):
+    #     print('Epoch [%d/%d]' %(epoch+1, args.epochs))
+    #
+    #     # scheduler.step()
+    #
+    #     # train for one epoch
+    #     train_log = train(args, train_loader, model, criterion, optimizer, epoch)
+    #     # evaluate on validation set
+    #     val_log = validate(args, test_loader, model, criterion)
+    #
+    #     print('loss %.4f - acc1 %.4f - acc5 %.4f - val_loss %.4f - val_acc %.4f - val_acc5 %.4f'
+    #         %(train_log['loss'], train_log['acc1'], train_log['acc5'], val_log['loss'], val_log['acc1'], val_log['acc5']))
+    #
+    #     tmp = pd.Series([
+    #         epoch,
+    #         scheduler.get_lr()[0],
+    #         train_log['loss'],
+    #         train_log['acc1'],
+    #         train_log['acc5'],
+    #         val_log['loss'],
+    #         val_log['acc1'],
+    #         val_log['acc5'],
+    #     ], index=['epoch', 'lr', 'loss', 'acc1', 'acc5', 'val_loss', 'val_acc1', 'val_acc5'])
+    #
+    #     log = log.append(tmp, ignore_index=True)
+    #     log.to_csv('models/%s/log.csv' %args.name, index=False)
+    #
+    #     if val_log['acc1'] > best_acc:
+    #         torch.save(model.state_dict(), 'models/%s/model.pth' %args.name)
+    #         best_acc = val_log['acc1']
+    #         print("=> saved best model")
 
 
 if __name__ == '__main__':

@@ -1,7 +1,6 @@
 import torch
 import torch.nn as nn
 
-
 __all__ = ['ImageNetRes2Net', 'res2net50', 'res2net101',
            'res2net152', 'res2next50_32x4d', 'se_res2net50',
            'CifarRes2Net', 'res2next29_6cx24wx4scale',
