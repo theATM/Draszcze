@@ -13,7 +13,8 @@ ipython_config.py
 __pycache__/
 *.py[cod]
 *$py.class
-
+/Res2Net/lightning_logs
+/Res2Net/models
 
 
 # Environments
